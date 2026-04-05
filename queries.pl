@@ -121,6 +121,21 @@ test(generate_schedule_valid, [true(Count == ExpectedCount), nondet]) :-
     length(GeneratedLessons,Count),
     valid_lessons(GeneratedLessons).
 
+% HTML-экспорт для уровня 3 создает полноценный документ с таблицей.
+test(export_generated_schedule_html_creates_document, [nondet]) :-
+    tmp_file_stream(text,FileName,PlaceholderStream),
+    close(PlaceholderStream),
+    export_generated_schedule_html(FileName),
+    setup_call_cleanup(
+        open(FileName,read,Stream,[encoding(utf8)]),
+        read_string(Stream,_,Html),
+        close(Stream)
+    ),
+    delete_file(FileName),
+    sub_string(Html,_,_,_,'<!DOCTYPE html>'),
+    sub_string(Html,_,_,_,'Сгенерированное расписание'),
+    sub_string(Html,_,_,_,'<table>').
+
 :- end_tests(schedule).
 
 % Для демонстрации в REPL можно использовать и обычные запросы:
@@ -133,5 +148,6 @@ test(generate_schedule_valid, [true(Count == ExpectedCount), nondet]) :-
 % ?- generate_schedule(GeneratedLessons,Penalty).
 % ?- export_schedule_csv('current_schedule.csv').
 % ?- export_generated_schedule_csv('generated_schedule.csv').
+% ?- export_generated_schedule_html('generated_schedule.html').
 
 :- run_tests.

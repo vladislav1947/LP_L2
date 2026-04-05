@@ -209,6 +209,11 @@ room_has_equipment(Room,Equipment) :-
     room(Room,_,EquipmentList),
     member(Equipment,EquipmentList).
 
+%% room_suitable(+Room, +Group, +Subject) is semidet.
+%
+%  Проверяет, подходит ли аудитория для занятия конкретной группы по
+%  конкретному предмету. Учитываются размер группы и требования предмета
+%  к оборудованию аудитории.
 room_suitable(Room,Group,Subject) :-
     group_size(Group,GroupSize),
     room(Room,Capacity,_),
@@ -244,9 +249,18 @@ sorted_schedule(SortedLessons) :-
 
 % Уровень 1. Базовые аналитические запросы.
 
+%% when_subject(+Group, +Subject, -Day, -Slot, -Room) is nondet.
+%
+%  Перечисляет все занятия заданной группы по выбранному предмету.
+%  Возвращает день недели, номер пары и аудиторию.
 when_subject(Group,Subject,Day,Slot,Room) :-
     lesson(Group,Subject,_,Day,Slot,Room).
 
+%% free_room(?Room, +Day, +Slot) is nondet.
+%
+%  Истинен, если аудитория свободна в указанный день и слот.
+%  Может использоваться как для проверки одной аудитории, так и для
+%  перечисления всех свободных аудиторий.
 free_room(Room,Day,Slot) :-
     room(Room,_,_),
     \+ lesson(_,_,_,Day,Slot,Room).
@@ -254,13 +268,26 @@ free_room(Room,Day,Slot) :-
 'свободна_аудитория'(Room,Day,Slot) :-
     free_room(Room,Day,Slot).
 
+%% free_rooms(+Day, +Slot, -Rooms) is det.
+%
+%  Возвращает отсортированный список всех свободных аудиторий в выбранный
+%  день и временной слот.
 free_rooms(Day,Slot,Rooms) :-
     setof(Room, free_room(Room,Day,Slot), Rooms).
 
+%% teacher_groups(+Teacher, -Groups) is det.
+%
+%  Собирает список групп, у которых выбранный преподаватель ведёт хотя бы
+%  одно занятие в текущем расписании.
 teacher_groups(Teacher,Groups) :-
     teacher(Teacher),
     setof(Group, Subject^Day^Slot^Room^lesson(Group,Subject,Teacher,Day,Slot,Room), Groups).
 
+%% group_load(+Group, -LessonCount) is det.
+%
+%  Подсчитывает общее число занятий группы за неделю.
+%  Предикат ограничен фактами group/1, поэтому при свободной переменной
+%  Group корректно перечисляет нагрузку по всем группам.
 group_load(Group,LessonCount) :-
     group(Group),
     aggregate_all(count, lesson(Group,_,_,_,_,_), LessonCount).
@@ -268,16 +295,25 @@ group_load(Group,LessonCount) :-
 'нагрузка_группы'(Group,LessonCount) :-
     group_load(Group,LessonCount).
 
+%% group_day_load(+Group, +Day, -LessonCount) is det.
+%
+%  Возвращает, сколько занятий стоит у группы в конкретный день.
 group_day_load(Group,Day,LessonCount) :-
     group(Group),
     day(Day),
     aggregate_all(count, lesson(Group,_,_,Day,_,_), LessonCount).
 
+%% teacher_day_load(+Teacher, +Day, -LessonCount) is det.
+%
+%  Подсчитывает число занятий преподавателя в выбранный день.
 teacher_day_load(Teacher,Day,LessonCount) :-
     teacher(Teacher),
     day(Day),
     aggregate_all(count, lesson(_,_,Teacher,Day,_,_), LessonCount).
 
+%% teacher_free_day(+Teacher, -Day) is nondet.
+%
+%  Перечисляет дни недели, в которые преподаватель полностью свободен.
 teacher_free_day(Teacher,Day) :-
     teacher(Teacher),
     day(Day),
@@ -295,6 +331,11 @@ day_gap_count(Slots,GapCount) :-
     length(Slots,LessonCount),
     GapCount is LastSlot - FirstSlot + 1 - LessonCount.
 
+%% schedule_gaps(+Group, -GapCount) is det.
+%
+%  Считает суммарное число окон у группы за неделю.
+%  Для каждого дня берётся диапазон между первой и последней парой, а затем
+%  вычисляется число пустых слотов внутри этого диапазона.
 schedule_gaps(Group,GapCount) :-
     findall(DayGap,
         (
@@ -315,12 +356,15 @@ teacher_weekly_hours(Teacher,Hours) :-
     aggregate_all(count, lesson(_,_,Teacher,_,_,_), LessonCount),
     Hours is LessonCount * PairHours.
 
+%% least_busy_day(+Group, -Day) is nondet.
+%
+%  Находит все дни с минимальной нагрузкой для группы.
+%  Если несколько дней имеют одинаковый минимум занятий, будут перечислены
+%  все такие дни.
 least_busy_day(Group,Day) :-
     setof(LessonCount-DayName, group_day_load(Group,DayName,LessonCount), Counts),
     Counts = [MinCount-_|_],
     member(MinCount-Day, Counts).
-
-% Уровень 2. Проверка корректности и метрики качества.
 
 group_conflict(Group,Day,Slot,Lessons) :-
     group(Group),
@@ -366,18 +410,29 @@ room_equipment_violation(Group,Subject,Day,Slot,Room) :-
     subject_requirement(Subject,Equipment),
     \+ room_has_equipment(Room,Equipment).
 
+%% no_group_conflicts is semidet.
+%
+%  Успешен, если в расписании нет пересечений по группам, то есть ни одна
+%  группа не поставлена на две пары одновременно.
 no_group_conflicts :-
     \+ group_conflict(_,_,_,_).
 
 'нет_конфликтов_групп' :-
     no_group_conflicts.
 
+%% no_teacher_conflicts is semidet.
+%
+%  Проверяет отсутствие временных пересечений у преподавателей.
 no_teacher_conflicts :-
     \+ teacher_conflict(_,_,_,_).
 
 'нет_конфликтов_преподавателей' :-
     no_teacher_conflicts.
 
+%% no_room_conflicts is semidet.
+%
+%  Выполняет комплексную проверку аудиторий: нет ли двойного бронирования,
+%  превышения вместимости и нарушений требований к оборудованию.
 no_room_conflicts :-
     \+ room_slot_conflict(_,_,_,_),
     \+ room_capacity_violation(_,_,_,_,_),
@@ -418,6 +473,10 @@ lessons_room_violation(Lessons,Group,Subject,Day,Slot,Room) :-
     member(lesson(Group,Subject,_,Day,Slot,Room),Lessons),
     \+ room_suitable(Room,Group,Subject).
 
+%% valid_lessons(+Lessons) is semidet.
+%
+%  Проверяет корректность произвольного списка занятий вне основной базы.
+%  Используется в тестах и после генерации расписания.
 valid_lessons(Lessons) :-
     \+ lessons_group_conflict(Lessons,_,_,_),
     \+ lessons_teacher_conflict(Lessons,_,_,_),
@@ -450,6 +509,11 @@ valid_swapped_lesson(lesson(Group,Subject,Teacher,Day,Slot,Room),ExcludedLessons
     room_suitable(Room,Group,Subject),
     \+ lesson_conflicts_with_schedule(lesson(Group,Subject,Teacher,Day,Slot,Room),ExcludedLessons).
 
+%% can_swap(+LessonA, +LessonB) is semidet.
+%
+%  Проверяет, можно ли поменять местами два уже существующих занятия.
+%  После обмена не должно появиться конфликтов по группе, преподавателю,
+%  аудитории или требованиям к аудитории.
 can_swap(LessonA,LessonB) :-
     scheduled_lesson(LessonA),
     scheduled_lesson(LessonB),
@@ -465,6 +529,11 @@ can_swap(LessonA,LessonB) :-
 % Генератор использует каталог обязательных занятий без фиксированных дней,
 % затем распределяет их по 30 слотам, минимизируя окна.
 
+%% suitable_room_indices(+Group, +Subject, -Indices) is det.
+%
+%  Возвращает индексы всех аудиторий, которые подходят группе и предмету.
+%  Эти индексы используются на этапе подбора аудиторий после расстановки
+%  занятий по временным слотам.
 suitable_room_indices(Group,Subject,Indices) :-
     findall(Index,
         (
@@ -551,6 +620,11 @@ group_day_profile(Tasks,Group,Day,OccupiedSlots,DayLoad,DayPenalty) :-
     sum(OccupiedSlots,#=,DayLoad),
     group_day_penalty_from_occupied(OccupiedSlots,DayPenalty).
 
+%% constrain_group_distribution(+Tasks) is det.
+%
+%  Ограничивает число занятий группы в один день сверху.
+%  Пустые дни разрешены, но перегруженные дни с более чем тремя занятиями
+%  отсекаются как недопустимые.
 constrain_group_distribution(Tasks) :-
     forall(
         (group(Group), day(Day)),
@@ -560,6 +634,10 @@ constrain_group_distribution(Tasks) :-
         )
     ).
 
+%% compactness_penalty(+Tasks, -TotalPenalty) is det.
+%
+%  Вычисляет суммарный штраф за окна по всем группам и дням недели.
+%  Генератор минимизирует именно это значение.
 compactness_penalty(Tasks,TotalPenalty) :-
     findall(DayPenalty,
         (
@@ -587,6 +665,10 @@ sort_tasks_for_room_assignment(Tasks,SortedTasks) :-
     keysort(Pairs,SortedPairs),
     extract_values(SortedPairs,SortedTasks).
 
+%% assign_rooms(+Tasks, -AssignedTasks) is nondet.
+%
+%  Подбирает конкретные аудитории для уже расставленных по слотам занятий.
+%  При подборе запрещаются конфликты по времени в одной аудитории.
 assign_rooms(Tasks,AssignedTasks) :-
     sort_tasks_for_room_assignment(Tasks,SortedTasks),
     assign_rooms_sorted(SortedTasks,[],ReversedTasks),
@@ -607,11 +689,19 @@ task_to_lesson(assigned_task(_,Group,Subject,Teacher,AbsoluteSlot,RoomIndex), le
     absolute_slot_to_day_slot(AbsoluteSlot,Day,Slot),
     room_index(RoomIndex,Room).
 
+%% required_lessons_count(+Subject, -LessonCount) is det.
+%
+%  Переводит число часов предмета в число занятий в расписании.
+%  Используется округление вверх по длительности пары.
 required_lessons_count(Subject,LessonCount) :-
     subject_hours(Subject,Hours),
     pair_hours(PairHours),
     LessonCount is (Hours + PairHours - 1) // PairHours.
 
+%% curriculum_entries(-Entries) is det.
+%
+%  Формирует учебный план как множество уникальных троек
+%  группа-предмет-преподаватель, присутствующих в базе.
 curriculum_entries(Entries) :-
     setof(entry(Group,Subject,Teacher),
         Day^Slot^Room^lesson(Group,Subject,Teacher,Day,Slot,Room),
@@ -632,6 +722,10 @@ expand_curriculum_entries([entry(Group,Subject,Teacher)|Rest],Data) :-
     expand_curriculum_entries(Rest,RestData),
     append(CurrentData,RestData,Data).
 
+%% generation_input(-Data) is det.
+%
+%  Преобразует учебный план в список задач генератора, где каждая задача
+%  соответствует одному занятию, которое нужно разместить в расписании.
 generation_input(Data) :-
     curriculum_entries(Entries),
     expand_curriculum_entries(Entries,Data).
@@ -639,6 +733,13 @@ generation_input(Data) :-
 generate_schedule(GeneratedLessons) :-
     generate_schedule(GeneratedLessons,_).
 
+%% generate_schedule(-GeneratedLessons, -TotalPenalty) is nondet.
+%
+%  Генерирует новое допустимое расписание. Предикат:
+%  1. строит входные задачи из учебного плана;
+%  2. назначает им временные слоты с помощью CLP(FD);
+%  3. минимизирует число окон;
+%  4. подбирает подходящие аудитории.
 generate_schedule(GeneratedLessons,TotalPenalty) :-
     generation_input(Data),
     prepare_tasks(Data,1,Tasks,SlotVars),
@@ -653,10 +754,17 @@ generate_schedule(GeneratedLessons,TotalPenalty) :-
 
 % Экспорт текущего или сгенерированного расписания в CSV.
 
+%% write_csv_row(+Stream, +Lesson) is det.
+%
+%  Записывает одно занятие в CSV-строку с уже вычисленным текстовым
+%  представлением времени пары.
 write_csv_row(Stream,lesson(Group,Subject,Teacher,Day,Slot,Room)) :-
     slot_time(Slot,TimeRange),
     format(Stream,"~w,~w,~w,~w,~w,~w,~w~n",[Group,Subject,Teacher,Day,Slot,TimeRange,Room]).
 
+%% export_lessons_csv(+FileName, +Lessons) is det.
+%
+%  Универсальный экспорт списка занятий в CSV-файл.
 export_lessons_csv(FileName,Lessons) :-
     setup_call_cleanup(
         open(FileName,write,Stream,[encoding(utf8)]),
@@ -667,10 +775,206 @@ export_lessons_csv(FileName,Lessons) :-
         close(Stream)
     ).
 
+day_label(monday,'Понедельник').
+day_label(tuesday,'Вторник').
+day_label(wednesday,'Среда').
+day_label(thursday,'Четверг').
+day_label(friday,'Пятница').
+
+lesson_on_day(Day,lesson(_,_,_,Day,_,_)).
+
+%% export_schedule_csv(+FileName) is det.
+%
+%  Экспортирует текущее расписание, заданное фактами lesson/6.
 export_schedule_csv(FileName) :-
     sorted_schedule(Lessons),
     export_lessons_csv(FileName,Lessons).
 
+%% export_generated_schedule_csv(+FileName) is nondet.
+%
+%  Генерирует новое расписание и сразу сохраняет его в CSV.
 export_generated_schedule_csv(FileName) :-
     generate_schedule(Lessons),
     export_lessons_csv(FileName,Lessons).
+
+%% write_html_document_start(+Stream, +Title) is det.
+%
+%  Записывает начало HTML-документа вместе со встроенными стилями оформления.
+write_html_document_start(Stream,Title) :-
+    format(Stream,
+"<!DOCTYPE html>
+<html lang=\"ru\">
+<head>
+  <meta charset=\"UTF-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+  <title>~w</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-bg: #f3efe7;
+      --card-bg: #fffdf8;
+      --border: #d6c7ad;
+      --accent: #7a4b2a;
+      --accent-soft: #efe1cf;
+      --text: #2f241c;
+      --muted: #6f6257;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 20px 48px;
+      font-family: \"Segoe UI\", \"Trebuchet MS\", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(122, 75, 42, 0.14), transparent 30%),
+        linear-gradient(180deg, #f8f3eb 0%, var(--page-bg) 100%);
+      color: var(--text);
+    }
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 2rem;
+      color: var(--accent);
+    }
+    .subtitle {
+      margin: 0 0 24px;
+      color: var(--muted);
+    }
+    .day-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 10px 30px rgba(80, 58, 38, 0.07);
+      overflow-x: auto;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 1.25rem;
+      color: var(--accent);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid #eadfce;
+    }
+    th {
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 700;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    .empty-day {
+      color: var(--muted);
+      font-style: italic;
+      margin: 0;
+    }
+    @media (max-width: 820px) {
+      body {
+        padding: 20px 12px 32px;
+      }
+      h1 {
+        font-size: 1.6rem;
+      }
+      .day-card {
+        padding: 14px;
+        border-radius: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class=\"page\">
+    <h1>~w</h1>
+    <p class=\"subtitle\">Расписание сформировано средствами Prolog и CLP(FD).</p>
+",[Title,Title]).
+
+%% write_html_document_end(+Stream) is det.
+%
+%  Закрывает HTML-документ.
+write_html_document_end(Stream) :-
+    write(Stream,"  </main>\n</body>\n</html>\n").
+
+%% write_html_row(+Stream, +Lesson) is det.
+%
+%  Преобразует одно занятие в строку HTML-таблицы.
+write_html_row(Stream,lesson(Group,Subject,Teacher,_Day,Slot,Room)) :-
+    slot_time(Slot,TimeRange),
+    format(Stream,
+"        <tr>
+          <td>~w</td>
+          <td>~w</td>
+          <td>~w</td>
+          <td>~w</td>
+          <td>~w / ~w</td>
+        </tr>
+",[Slot,TimeRange,Group,Subject,Teacher,Room]).
+
+%% write_html_day_section(+Stream, +Day, +Lessons) is det.
+%
+%  Формирует отдельный HTML-блок для одного дня недели.
+%  Если занятий нет, выводится специальное сообщение о пустом дне.
+write_html_day_section(Stream,Day,Lessons) :-
+    day_label(Day,DayLabel),
+    include(lesson_on_day(Day),Lessons,DayLessons),
+    format(Stream,"    <section class=\"day-card\">~n      <h2>~w</h2>~n",[DayLabel]),
+    (
+        DayLessons = []
+    ->
+        write(Stream,"      <p class=\"empty-day\">В этот день занятий нет.</p>\n")
+    ;
+        write(Stream,
+"      <table>
+        <thead>
+          <tr>
+            <th>Пара</th>
+            <th>Время</th>
+            <th>Группа</th>
+            <th>Предмет</th>
+            <th>Преподаватель / аудитория</th>
+          </tr>
+        </thead>
+        <tbody>
+"),
+        forall(member(Lesson,DayLessons), write_html_row(Stream,Lesson)),
+        write(Stream,"        </tbody>\n      </table>\n")
+    ),
+    write(Stream,"    </section>\n").
+
+%% export_lessons_html(+FileName, +Title, +Lessons) is det.
+%
+%  Экспортирует список занятий в человекочитаемый HTML-документ.
+export_lessons_html(FileName,Title,Lessons) :-
+    setup_call_cleanup(
+        open(FileName,write,Stream,[encoding(utf8)]),
+        (
+            write_html_document_start(Stream,Title),
+            forall(day(Day), write_html_day_section(Stream,Day,Lessons)),
+            write_html_document_end(Stream)
+        ),
+        close(Stream)
+    ).
+
+%% export_schedule_html(+FileName) is det.
+%
+%  Экспортирует текущее расписание в HTML-формате.
+export_schedule_html(FileName) :-
+    sorted_schedule(Lessons),
+    export_lessons_html(FileName,'Текущее расписание',Lessons).
+
+%% export_generated_schedule_html(+FileName) is nondet.
+%
+%  Генерирует новое расписание и сохраняет его как HTML-страницу.
+export_generated_schedule_html(FileName) :-
+    generate_schedule(Lessons),
+    export_lessons_html(FileName,'Сгенерированное расписание',Lessons).
